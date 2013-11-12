@@ -14,6 +14,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.util.StringUtils;
+import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -30,6 +31,8 @@ public class AccumuloHiveUtils {
 
     private static final String ROWID = "rowID";
     private static final Pattern COMMA = Pattern.compile("[,]");
+    private static final Pattern COLONORCOMMA = Pattern.compile("[:|,]");
+    private static final Logger log = Logger.getLogger(AccumuloSerde.class);
 
     public static String getFromConf(Configuration conf, String property)
             throws MissingArgumentException {
@@ -46,9 +49,23 @@ public class AccumuloHiveUtils {
      */
     public static List<String> parseColumnMapping(String columnMapping) {
 
-        if(columnMapping == null)
+        if(columnMapping == null) {
             throw new IllegalArgumentException("null columnMapping not allowed.");
+        }
         return Lists.newArrayList(COMMA.split(columnMapping));
+    }
+
+    /**
+     *
+     * @param typeMapping comma-separated list of columns.
+     * @return List<String> columns
+     */
+    public static List<String> parseTypeMapping(String typeMapping) {
+
+        if(typeMapping == null) {
+            throw new IllegalArgumentException("null typeMapping not allowed.");
+        }
+        return Lists.newArrayList(COLONORCOMMA.split(typeMapping));
     }
 
     /**
@@ -56,6 +73,9 @@ public class AccumuloHiveUtils {
      * @return the Hive column aligned with the accumulo rowID, or null if no column is mapped to rowID.
      */
     public static String hiveColForRowID (JobConf conf) {
+//        for (Map.Entry<String, String> entry : conf) {
+//            System.out.println(entry.getKey() + " | " + entry.getValue());
+//        }
         String hiveColProp = conf.get(serdeConstants.LIST_COLUMNS);
         List<String> hiveCols = AccumuloHiveUtils.parseColumnMapping(hiveColProp);
         int rowidIndex = getRowIdIndex(conf);
@@ -139,7 +159,7 @@ public class AccumuloHiveUtils {
      */
     public static String hiveColType(String col, JobConf conf) {
         List<String> hiveCols = parseColumnMapping(conf.get(serdeConstants.LIST_COLUMNS));
-        List<String> types =  parseColumnMapping(conf.get(serdeConstants.LIST_COLUMN_TYPES));
+        List<String> types =  parseTypeMapping(conf.get(serdeConstants.LIST_COLUMN_TYPES));
         if(types.size() != hiveCols.size())
             throw new IllegalArgumentException("num of hive cols (" + hiveCols.size() + ") does not match " +
                     "number of types (" + types.size() + ")");

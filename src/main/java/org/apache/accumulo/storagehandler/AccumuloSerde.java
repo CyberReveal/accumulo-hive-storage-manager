@@ -84,6 +84,14 @@ public class AccumuloSerde implements SerDe {
             int indexOfLastColon = builder.lastIndexOf(":");
             builder.replace(indexOfLastColon, indexOfLastColon+1, "");
             properties.setProperty(serdeConstants.LIST_COLUMN_TYPES, builder.toString());
+            conf.set(serdeConstants.LIST_COLUMN_TYPES, properties.getProperty(serdeConstants.LIST_COLUMN_TYPES));
+        } else {
+            if (properties.getProperty(serdeConstants.LIST_COLUMN_TYPES) != null) {
+                conf.set(serdeConstants.LIST_COLUMN_TYPES, properties.getProperty(serdeConstants.LIST_COLUMN_TYPES));
+            }
+        }
+        if (properties.getProperty(serdeConstants.LIST_COLUMNS) != null) {
+            conf.set(serdeConstants.LIST_COLUMNS, properties.getProperty(serdeConstants.LIST_COLUMNS));
         }
 
         serDeParameters = LazySimpleSerDe.initSerdeParams(conf, properties, name);
