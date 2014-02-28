@@ -1,11 +1,13 @@
 package org.apache.accumulo.storagehandler.predicate;
 
+import com.detica.cyberreveal.accumulo.inspection.HumanReadableValueIterator;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.accumulo.core.client.IteratorSetting;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.storagehandler.AccumuloHiveUtils;
 import org.apache.accumulo.storagehandler.AccumuloSerde;
+import org.apache.accumulo.storagehandler.CustomIndexPredicateAnalyzer;
 import org.apache.accumulo.storagehandler.predicate.compare.*;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.hadoop.hive.ql.exec.ExprNodeConstantEvaluator;
@@ -133,13 +135,29 @@ public class AccumuloPredicateHandler {
      */
     public List<IteratorSetting> getIterators(JobConf conf)
             throws SerDeException{
+
         List<IteratorSetting> itrs = Lists.newArrayList();
+        /**
+         * TODO CPA: Add our human readable iterator here otherwise nothing will work
+         * Make sure to use iteratorCount as priority and increment it afterwards
+         */
+
+
+        if (conf.get(AccumuloSerde.HUMAN_READABLE) != null) {
+            IteratorSetting is = new IteratorSetting(++iteratorCount,
+                    "HumanReadable",
+                    HumanReadableValueIterator.class);
+            itrs.add(is);
+        }
+
+
         if(conf.get(AccumuloSerde.NO_ITERATOR_PUSHDOWN) != null)  {
             log.info("Iterator pushdown is disabled for this table");
             return itrs;
         }
 
         String rowIdCol = AccumuloHiveUtils.hiveColForRowID(conf);
+
         for(IndexSearchCondition sc : getSearchConditions(conf)) {
             String col = sc.getColumnDesc().getColumn();
             if(rowIdCol == null || !rowIdCol.equals(col))
@@ -217,10 +235,28 @@ public class AccumuloPredicateHandler {
         if(filteredExprSerialized == null)
             return sConditions;
         ExprNodeDesc filterExpr = Utilities.deserializeExpression(filteredExprSerialized, conf);
+        System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        System.out.println(filterExpr.getExprString());
+        System.out.println(filterExpr.getExprString());
+        System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         IndexPredicateAnalyzer analyzer = newAnalyzer(conf);
         ExprNodeDesc residual = analyzer.analyzePredicate(filterExpr, sConditions);
         if(residual != null)
             throw new RuntimeException("Unexpected residual predicate: " + residual.getExprString());
+
+        for (IndexSearchCondition cond : sConditions) {
+            System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            if (cond.getColumnDesc().getColumn() != null) {
+                System.out.println(cond.getColumnDesc().getColumn());
+                System.out.println(cond.getComparisonExpr().getExprString());
+                System.out.println(cond.getComparisonOp());
+            } else {
+                System.out.println(cond.getComparisonOp());
+            }
+            System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+
+        }
+
         return sConditions;
     }
 
@@ -233,7 +269,10 @@ public class AccumuloPredicateHandler {
      */
     public DecomposedPredicate decompose(JobConf conf, ExprNodeDesc desc) {
 
-
+        System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        System.out.println(desc.getExprString());
+        System.out.println(desc.getExprString());
+        System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         IndexPredicateAnalyzer analyzer = newAnalyzer(conf);
         List<IndexSearchCondition> sConditions = new ArrayList<IndexSearchCondition>();
         ExprNodeDesc residualPredicate = analyzer.analyzePredicate(desc, sConditions);
@@ -242,9 +281,24 @@ public class AccumuloPredicateHandler {
                 log.info("nothing to decompose. Returning");
             return null;
         }
+        for (IndexSearchCondition cond : sConditions) {
+            System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            if (cond.getColumnDesc().getColumn() != null) {
+                System.out.println(cond.getColumnDesc().getColumn());
+                System.out.println(cond.getComparisonExpr().getExprString());
+                System.out.println(cond.getComparisonOp());
+            } else {
+                System.out.println(cond.getComparisonOp());
+            }
+            System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        }
         DecomposedPredicate decomposedPredicate  = new DecomposedPredicate();
         decomposedPredicate.pushedPredicate = analyzer.translateSearchConditions(sConditions);
+        System.out.println("???????? pushed " + decomposedPredicate.pushedPredicate.getExprString());
         decomposedPredicate.residualPredicate = residualPredicate;
+        if (decomposedPredicate.residualPredicate == null) {
+            System.out.println("???????? residual is null, yay!");
+        }
         return decomposedPredicate;
     }
 
@@ -254,6 +308,7 @@ public class AccumuloPredicateHandler {
      */
     private IndexPredicateAnalyzer newAnalyzer(JobConf conf)
     {
+//        CustomIndexPredicateAnalyzer analyzer = new CustomIndexPredicateAnalyzer();
         IndexPredicateAnalyzer analyzer = new IndexPredicateAnalyzer();
         analyzer.clearAllowedColumnNames();
         for(String op : cOpKeyset()) {

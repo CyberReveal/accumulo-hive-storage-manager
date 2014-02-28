@@ -267,9 +267,15 @@ public class HiveAccumuloTableInputFormat
         setInputTableName(job, tableName);
         setScanAuthorizations(job, connector.securityOperations().getUserAuthorizations(user));
         List<IteratorSetting> iterators = predicateHandler.getIterators(conf); //restrict with any filters found from WHERE predicates.
+        if (iterators == null) {
+            System.out.println("NO ITERATORS");
+        } else {
+            System.out.println("!!!!!!!!!!!!!! added " + iterators.size() + " iterators !!!!!!!!!!!!!!!!!!!!");
+        }
         for(IteratorSetting is : iterators)
             addIterator(job, is);
         Collection<Range> ranges = predicateHandler.getRanges(conf); //restrict with any ranges found from WHERE predicates.
+        System.out.println("ADDING " + ranges.size() + " ranges");
         if(ranges.size() > 0)
             setRanges(job, ranges);
         fetchColumns(job, getPairCollection(colQualFamPairs));

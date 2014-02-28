@@ -31,6 +31,7 @@ public class AccumuloSerde implements SerDe {
     public static final String INSTANCE_ID = "accumulo.instance.id";
     public static final String COLUMN_MAPPINGS = "accumulo.columns.mapping";
     public static final String NO_ITERATOR_PUSHDOWN = "accumulo.no.iterators";
+    public static final String HUMAN_READABLE = "accumulo.human.readable";
     private static final String MORE_ACCUMULO_THAN_HIVE = "You have more " + COLUMN_MAPPINGS + " fields than hive columns";
     private static final String MORE_HIVE_THAN_ACCUMULO = "You have more hive columns than fields mapped with " + COLUMN_MAPPINGS;
     private LazySimpleSerDe.SerDeParameters serDeParameters;
@@ -93,6 +94,7 @@ public class AccumuloSerde implements SerDe {
         if (properties.getProperty(serdeConstants.LIST_COLUMNS) != null) {
             conf.set(serdeConstants.LIST_COLUMNS, properties.getProperty(serdeConstants.LIST_COLUMNS));
         }
+        conf.set(HUMAN_READABLE, properties.getProperty(HUMAN_READABLE));
 
         serDeParameters = LazySimpleSerDe.initSerdeParams(conf, properties, name);
         if (fetchCols.size() != serDeParameters.getColumnNames().size()) {
