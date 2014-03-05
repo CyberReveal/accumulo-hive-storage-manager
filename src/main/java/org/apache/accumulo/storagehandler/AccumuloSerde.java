@@ -94,7 +94,9 @@ public class AccumuloSerde implements SerDe {
         if (properties.getProperty(serdeConstants.LIST_COLUMNS) != null) {
             conf.set(serdeConstants.LIST_COLUMNS, properties.getProperty(serdeConstants.LIST_COLUMNS));
         }
-        conf.set(HUMAN_READABLE, properties.getProperty(HUMAN_READABLE));
+        if (properties.getProperty(HUMAN_READABLE) != null) {
+            conf.set(HUMAN_READABLE, properties.getProperty(HUMAN_READABLE));
+        }
 
         serDeParameters = LazySimpleSerDe.initSerdeParams(conf, properties, name);
         if (fetchCols.size() != serDeParameters.getColumnNames().size()) {
