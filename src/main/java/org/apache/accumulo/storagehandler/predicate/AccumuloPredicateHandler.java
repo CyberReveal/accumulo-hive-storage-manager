@@ -1,8 +1,13 @@
 package org.apache.accumulo.storagehandler.predicate;
 
 import com.detica.cyberreveal.accumulo.inspection.HumanReadableValueIterator;
+import com.detica.cyberreveal.common.SystemException;
+import com.detica.cyberreveal.platform.configuration.InvalidConfigurationException;
+import com.detica.cyberreveal.platform.dataencoding.DataEncoderFactory;
+import com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.accumulo.core.client.IteratorSetting;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.storagehandler.AccumuloHiveUtils;
@@ -47,6 +52,8 @@ public class AccumuloPredicateHandler {
     private static int iteratorCount = 0;
 
     private static final Logger log = Logger.getLogger(AccumuloPredicateHandler.class);
+    private static final DataEncoderFactory DATA_ENCODER_FACTORY;
+    
     static {
         log.setLevel(Level.INFO);
         compareOps.put(GenericUDFOPEqual.class.getName(), Equal.class);
@@ -61,6 +68,16 @@ public class AccumuloPredicateHandler {
         pComparisons.put("int", IntCompare.class);
         pComparisons.put("double", DoubleCompare.class);
         pComparisons.put("string", StringCompare.class);
+        
+        String registryKeyPrefix = "cr.ingest.acme.registry.";
+		Map<String, String> registryConfig = setUpRegistryConfig(registryKeyPrefix);
+		DataTypeRegistry registry = new DataTypeRegistry();
+        try {
+            registry.setProperties(registryKeyPrefix, registryConfig);
+            DATA_ENCODER_FACTORY = new DataEncoderFactory(registry);
+        } catch (InvalidConfigurationException e) {
+            throw new SystemException("Failed to create the DataTypeRegistry", e);
+        }
     }
 
 
@@ -143,12 +160,12 @@ public class AccumuloPredicateHandler {
          */
 
 
-        if (conf.get(AccumuloSerde.HUMAN_READABLE) != null) {
+        /*if (conf.get(AccumuloSerde.HUMAN_READABLE) != null) {
             IteratorSetting is = new IteratorSetting(++iteratorCount,
                     "HumanReadable",
                     HumanReadableValueIterator.class);
             itrs.add(is);
-        }
+        }*/
 
 
         if(conf.get(AccumuloSerde.NO_ITERATOR_PUSHDOWN) != null)  {
@@ -409,5 +426,22 @@ public class AccumuloPredicateHandler {
             }
         }
 
+    }
+    
+    /**
+     * Populates a map of config key and values needed to set up a {@link com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry}.
+     */
+    //TODO Needs to be done properly by getting the config from the ingest.properties on hdfs
+    private static Map<String, String> setUpRegistryConfig(String registryKeyPrefix) {
+		Map<String, String> registryConfig = new HashMap<String, String>();
+		registryConfig.put(registryKeyPrefix + "0", "org.joda.time.DateTime,com.detica.cyberreveal.platform.dataencoding.encoders.DateTimeEncoder");
+		registryConfig.put(registryKeyPrefix + "1", "java.lang.Long,com.detica.cyberreveal.platform.dataencoding.encoders.LongEncoder");
+		registryConfig.put(registryKeyPrefix + "2", "java.lang.String,com.detica.cyberreveal.platform.dataencoding.encoders.StringEncoder");
+		registryConfig.put(registryKeyPrefix + "3", "java.lang.Double,com.detica.cyberreveal.platform.dataencoding.encoders.DoubleEncoder");
+		registryConfig.put(registryKeyPrefix + "4", "java.lang.Integer,com.detica.cyberreveal.platform.dataencoding.encoders.IntegerEncoder");
+		registryConfig.put(registryKeyPrefix + "5", "java.lang.Float,com.detica.cyberreveal.platform.dataencoding.encoders.FloatEncoder");
+		registryConfig.put(registryKeyPrefix + "6", "com.detica.cyberreveal.common.types.ComparableBitSet,com.detica.cyberreveal.platform.dataencoding.encoders.BitSetEncoder");
+		
+		return registryConfig;
     }
 }
