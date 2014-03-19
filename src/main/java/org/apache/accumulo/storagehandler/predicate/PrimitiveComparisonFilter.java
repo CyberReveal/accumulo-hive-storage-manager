@@ -1,11 +1,18 @@
 package org.apache.accumulo.storagehandler.predicate;
 
+import com.detica.cyberreveal.common.SystemException;
+import com.detica.cyberreveal.platform.configuration.InvalidConfigurationException;
+import com.detica.cyberreveal.platform.dataencoding.DataEncoderFactory;
+import com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry;
+import com.detica.cyberreveal.platform.dataencoding.encoders.DataEncoder;
 import com.google.common.collect.Lists;
+
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.iterators.IteratorEnvironment;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
 import org.apache.accumulo.core.iterators.user.WholeRowIterator;
+import org.apache.accumulo.storagehandler.AccumuloHiveUtils;
 import org.apache.accumulo.storagehandler.predicate.compare.CompareOp;
 import org.apache.accumulo.storagehandler.predicate.compare.PrimitiveCompare;
 import org.apache.commons.codec.binary.Base64;
@@ -13,6 +20,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -32,6 +40,7 @@ public class PrimitiveComparisonFilter extends WholeRowIterator {
     public static final String COMPARE_OPT_CLASS = "accumulo.filter.iterator.compare.opt.class";
     public static final String CONST_VAL = "accumulo.filter.iterator.const.val";
     public static final String COLUMN = "accumulo.filter.iterator.qual";
+    private DataEncoderFactory dataEncoderFactory;
     private String qual;
     private String cf;
 
@@ -64,7 +73,25 @@ public class PrimitiveComparisonFilter extends WholeRowIterator {
             Key k = kIter.next();
             Value v = vIter.next();
             if(matchQualAndFam(k) ) {
-                return compOpt.accept(v.get());
+            	DataEncoder encoder = dataEncoderFactory.createEncoder(v.get());
+            	byte[] encoded;
+            	Object obj = encoder.decode(v.get());
+            	if (obj instanceof Integer) {
+            		ByteBuffer buf = ByteBuffer.allocate(4);
+            		buf.putInt((Integer)obj);
+            		encoded = buf.array();
+            	} else if (obj instanceof Double) {
+            		ByteBuffer buf = ByteBuffer.allocate(8);
+            		buf.putDouble((Double)obj);
+            		encoded = buf.array();
+            	} else if (obj instanceof Long) {
+            		ByteBuffer buf = ByteBuffer.allocate(8);
+            		buf.putLong((Long)obj);
+            		encoded = buf.array();
+            	} else {
+            		encoded = ((String)obj).getBytes();
+            	}
+                return compOpt.accept(encoded);
             }
         }
         return false;
@@ -98,6 +125,16 @@ public class PrimitiveComparisonFilter extends WholeRowIterator {
             byte [] constant = constStr.getBytes();
             pCompare.init(constant);
             compOpt.setPrimitiveCompare(pCompare);
+            
+            String registryKeyPrefix = "cr.ingest.acme.registry.";
+    		Map<String, String> registryConfig = setUpRegistryConfig(registryKeyPrefix);
+    		DataTypeRegistry registry = new DataTypeRegistry();
+            try {
+                registry.setProperties(registryKeyPrefix, registryConfig);
+                dataEncoderFactory = new DataEncoderFactory(registry);
+            } catch (InvalidConfigurationException e) {
+                throw new SystemException("Failed to create the DataTypeRegistry", e);
+            }
         } catch (ClassNotFoundException e) {
             throw new IOException(e);
         } catch (InstantiationException e) {
@@ -105,5 +142,22 @@ public class PrimitiveComparisonFilter extends WholeRowIterator {
         } catch (IllegalAccessException e) {
             throw new IOException(e);
         }
+    }
+    
+    /**
+     * Populates a map of config key and values needed to set up a {@link com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry}.
+     */
+    //TODO Needs to be done properly by getting the config from the ingest.properties on hdfs
+    private static Map<String, String> setUpRegistryConfig(String registryKeyPrefix) {
+		Map<String, String> registryConfig = new HashMap<String, String>();
+		registryConfig.put(registryKeyPrefix + "0", "org.joda.time.DateTime,com.detica.cyberreveal.platform.dataencoding.encoders.DateTimeEncoder");
+		registryConfig.put(registryKeyPrefix + "1", "java.lang.Long,com.detica.cyberreveal.platform.dataencoding.encoders.LongEncoder");
+		registryConfig.put(registryKeyPrefix + "2", "java.lang.String,com.detica.cyberreveal.platform.dataencoding.encoders.StringEncoder");
+		registryConfig.put(registryKeyPrefix + "3", "java.lang.Double,com.detica.cyberreveal.platform.dataencoding.encoders.DoubleEncoder");
+		registryConfig.put(registryKeyPrefix + "4", "java.lang.Integer,com.detica.cyberreveal.platform.dataencoding.encoders.IntegerEncoder");
+		registryConfig.put(registryKeyPrefix + "5", "java.lang.Float,com.detica.cyberreveal.platform.dataencoding.encoders.FloatEncoder");
+		registryConfig.put(registryKeyPrefix + "6", "com.detica.cyberreveal.common.types.ComparableBitSet,com.detica.cyberreveal.platform.dataencoding.encoders.BitSetEncoder");
+		
+		return registryConfig;
     }
 }

@@ -1,14 +1,18 @@
 package org.apache.accumulo.storagehandler;
 
-import com.google.common.collect.Lists;
-import org.apache.accumulo.core.client.*;
-import org.apache.accumulo.core.client.impl.Writer;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+import org.apache.accumulo.core.client.AccumuloException;
+import org.apache.accumulo.core.client.AccumuloSecurityException;
+import org.apache.accumulo.core.client.Connector;
+import org.apache.accumulo.core.client.ZooKeeperInstance;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
 import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.storagehandler.predicate.AccumuloPredicateHandler;
-import org.apache.accumulo.storagehandler.predicate.compare.PrimitiveCompare;
 import org.apache.commons.cli.MissingArgumentException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde.serdeConstants;
@@ -16,12 +20,20 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
+import com.detica.cyberreveal.common.SystemException;
+import com.detica.cyberreveal.platform.configuration.InvalidConfigurationException;
+import com.detica.cyberreveal.platform.dataencoding.DataEncoderFactory;
+import com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry;
+import com.detica.cyberreveal.platform.dataencoding.encoders.DataEncoder;
+import com.detica.cyberreveal.platform.dataencoding.encoders.DoubleEncoder;
+import com.detica.cyberreveal.platform.dataencoding.encoders.IntegerEncoder;
+import com.detica.cyberreveal.platform.dataencoding.encoders.LongEncoder;
+import com.detica.cyberreveal.platform.dataencoding.encoders.StringEncoder;
+import com.detica.cyberreveal.platform.dataencoding.types.DoubleType;
+import com.detica.cyberreveal.platform.dataencoding.types.IntegerType;
+import com.detica.cyberreveal.platform.dataencoding.types.LongType;
+import com.detica.cyberreveal.platform.dataencoding.types.StringType;
+import com.google.common.collect.Lists;
 
 /**
  * Static methods for Hive/Accumulo configuration parsing and lookups.
@@ -33,7 +45,20 @@ public class AccumuloHiveUtils {
     private static final Pattern COMMA = Pattern.compile("[,]");
     private static final Pattern COLONORCOMMA = Pattern.compile("[:|,]");
     private static final Logger log = Logger.getLogger(AccumuloSerde.class);
-
+    public static final DataEncoderFactory DATA_ENCODER_FACTORY;
+    
+    static {
+    	String registryKeyPrefix = "cr.ingest.acme.registry.";
+		Map<String, String> registryConfig = setUpRegistryConfig(registryKeyPrefix);
+		DataTypeRegistry registry = new DataTypeRegistry();
+        try {
+            registry.setProperties(registryKeyPrefix, registryConfig);
+            DATA_ENCODER_FACTORY = new DataEncoderFactory(registry);
+        } catch (InvalidConfigurationException e) {
+            throw new SystemException("Failed to create the DataTypeRegistry", e);
+        }
+    }
+    
     public static String getFromConf(Configuration conf, String property)
             throws MissingArgumentException {
         String propValue = conf.get(property);
@@ -73,9 +98,6 @@ public class AccumuloHiveUtils {
      * @return the Hive column aligned with the accumulo rowID, or null if no column is mapped to rowID.
      */
     public static String hiveColForRowID (JobConf conf) {
-//        for (Map.Entry<String, String> entry : conf) {
-//            System.out.println(entry.getKey() + " | " + entry.getValue());
-//        }
         String hiveColProp = conf.get(serdeConstants.LIST_COLUMNS);
         List<String> hiveCols = AccumuloHiveUtils.parseColumnMapping(hiveColProp);
         int rowidIndex = getRowIdIndex(conf);
@@ -183,21 +205,23 @@ public class AccumuloHiveUtils {
      */
     public static byte[] valueAsUTF8bytes(JobConf conf, Key k, Value v)
             throws IOException {
-        String cf = k.getColumnFamily().toString();
+    	String cf = k.getColumnFamily().toString();
         String qual = k.getColumnQualifier().toString();
         String combined = cf + "|" + qual;
         String type = hiveColType(accumuloToHive(combined, conf), conf);
+        
+        
+        DataEncoder dataEncoder = DATA_ENCODER_FACTORY.createEncoder(v.get());
+        Object decodedValue = dataEncoder.decode(v.get());
+        
         if(type.equals("string")) {
-            return v.get();
+            return String.valueOf(decodedValue).getBytes();
         } else if (type.equals("int")) {
-            int val = ByteBuffer.wrap(v.get()).asIntBuffer().get();
-            return String.valueOf(val).getBytes();
+             return String.valueOf(decodedValue).getBytes();
         } else if (type.equals("double")) {
-            double val = ByteBuffer.wrap(v.get()).asDoubleBuffer().get();
-            return String.valueOf(val).getBytes();
+             return String.valueOf(decodedValue).getBytes();
         } else if (type.equals("bigint")) {
-            long val = ByteBuffer.wrap(v.get()).asLongBuffer().get();
-            return String.valueOf(val).getBytes();
+             return String.valueOf(decodedValue).getBytes();
         } else {
             throw new IOException("Unsupported type: " + type + " currently only string,int,long,double supported");
         }
@@ -226,5 +250,22 @@ public class AccumuloHiveUtils {
         } catch (AccumuloException e) {
             throw new IOException(StringUtils.stringifyException(e));
         }
+    }
+    
+    /**
+     * Populates a map of config key and values needed to set up a {@link com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry}.
+     */
+    //TODO Needs to be done properly by getting the config from the ingest.properties on hdfs
+    private static Map<String, String> setUpRegistryConfig(String registryKeyPrefix) {
+		Map<String, String> registryConfig = new HashMap<String, String>();
+		registryConfig.put(registryKeyPrefix + "0", "org.joda.time.DateTime,com.detica.cyberreveal.platform.dataencoding.encoders.DateTimeEncoder");
+		registryConfig.put(registryKeyPrefix + "1", "java.lang.Long,com.detica.cyberreveal.platform.dataencoding.encoders.LongEncoder");
+		registryConfig.put(registryKeyPrefix + "2", "java.lang.String,com.detica.cyberreveal.platform.dataencoding.encoders.StringEncoder");
+		registryConfig.put(registryKeyPrefix + "3", "java.lang.Double,com.detica.cyberreveal.platform.dataencoding.encoders.DoubleEncoder");
+		registryConfig.put(registryKeyPrefix + "4", "java.lang.Integer,com.detica.cyberreveal.platform.dataencoding.encoders.IntegerEncoder");
+		registryConfig.put(registryKeyPrefix + "5", "java.lang.Float,com.detica.cyberreveal.platform.dataencoding.encoders.FloatEncoder");
+		registryConfig.put(registryKeyPrefix + "6", "com.detica.cyberreveal.common.types.ComparableBitSet,com.detica.cyberreveal.platform.dataencoding.encoders.BitSetEncoder");
+		
+		return registryConfig;
     }
 }

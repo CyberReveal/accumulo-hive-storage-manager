@@ -1,6 +1,11 @@
 package org.apache.accumulo.storagehandler;
 
+import com.detica.cyberreveal.common.SystemException;
+import com.detica.cyberreveal.platform.configuration.InvalidConfigurationException;
+import com.detica.cyberreveal.platform.dataencoding.DataTypeRegistry;
 import com.google.common.collect.Lists;
+import com.sun.org.apache.commons.logging.Log;
+
 import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.client.mapreduce.AccumuloRowInputFormat;
 import org.apache.accumulo.core.client.mock.MockInstance;
@@ -12,6 +17,9 @@ import org.apache.accumulo.core.util.Pair;
 import org.apache.accumulo.core.util.PeekingIterator;
 import org.apache.accumulo.storagehandler.predicate.AccumuloPredicateHandler;
 import org.apache.accumulo.storagehandler.predicate.PrimitiveComparisonFilter;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.SerDeException;
@@ -25,8 +33,13 @@ import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -39,6 +52,8 @@ import java.util.regex.Pattern;
 public class HiveAccumuloTableInputFormat
         extends AccumuloRowInputFormat
         implements org.apache.hadoop.mapred.InputFormat<Text, AccumuloHiveRow> {
+	
+	private static final Logger LOG = LoggerFactory.getLogger(HiveAccumuloTableInputFormat.class);
 
     private static final Pattern PIPE = Pattern.compile("[|]");
     private AccumuloPredicateHandler predicateHandler = AccumuloPredicateHandler.getInstance();
@@ -50,6 +65,7 @@ public class HiveAccumuloTableInputFormat
         String user = jobConf.get(AccumuloSerde.USER_NAME);
         String pass = jobConf.get(AccumuloSerde.USER_PASS);
         String zookeepers = jobConf.get(AccumuloSerde.ZOOKEEPERS);
+        
         instance = getInstance(id, zookeepers);
         Job job = new Job(jobConf);
         try {
@@ -280,7 +296,7 @@ public class HiveAccumuloTableInputFormat
             setRanges(job, ranges);
         fetchColumns(job, getPairCollection(colQualFamPairs));
     }
-
+    
     /*
       Create col fam/qual pairs from pipe separated values, usually from config object. Ignores rowID.
      */
